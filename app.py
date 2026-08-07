@@ -2,17 +2,17 @@ import streamlit as st
 import os
 import json
 import glob
+import asyncio
 from PIL import Image
 from google import genai
 from google.genai import types
-from gtts import gTTS
-import io
+import edge_tts
 
 # Cấu hình giao diện Streamlit
 st.set_page_config(page_title="AI Luận Giải Bát Tự Tứ Trụ", page_icon="🔮", layout="wide")
 
 st.title("🔮 Hệ Thống AI Đọc Lá Số & Luận Giải Bát Tự")
-st.caption("Tự động phân tích ảnh lá số Tứ Trụ, tra cứu tri thức và đọc bài luận bằng giọng nói AI.")
+st.caption("Tự động phân tích ảnh lá số Tứ Trụ, tra cứu tri thức và tạo audio giọng đọc AI truyền cảm.")
 
 # ==========================================
 # 1. TỰ ĐỘNG ĐỌC BẢO MẬT GEMINI API KEY
@@ -51,6 +51,16 @@ system_prompt_input = st.sidebar.text_area(
     value=default_prompt,
     height=200
 )
+
+# Tùy chọn giọng đọc AI
+st.sidebar.markdown("---")
+st.sidebar.header("🎙️ Cấu Hình Giọng Đọc AI")
+voice_option = st.sidebar.selectbox(
+    "Chọn giọng đọc:",
+    options=["vi-VN-HoaiMyNeural (Giọng Nữ)", "vi-VN-NamMinhNeural (Giọng Nam)"],
+    index=0
+)
+voice_code = "vi-VN-HoaiMyNeural" if "HoaiMy" in voice_option else "vi-VN-NamMinhNeural"
 
 # ==========================================
 # 4. LOAD DỮ LIỆU TRI THỨC TỪ OUTPUT_DATA
@@ -107,7 +117,7 @@ with col2:
 
 st.markdown("---")
 
-# Quản lý trạng thái lưu kết quả bài luận để chuyển thành Audio
+# Quản lý bộ nhớ đệm lưu kết quả bài luận
 if "result_text" not in st.session_state:
     st.session_state.result_text = ""
 
@@ -166,31 +176,45 @@ YÊU CẦU BỔ SUNG TỪ NGƯỜI DÙNG:
                 st.error(f"❌ Đã xảy ra lỗi: {e}")
 
 # ==========================================
-# 7. HIỂN THỊ KẾT QUẢ & ĐỌC AUDIO TỰ ĐỘNG
+# 7. HIỂN THỊ KẾT QUẢ & ĐỌC AUDIO EDGE-TTS
 # ==========================================
 if st.session_state.result_text:
     st.markdown("### 📋 KẾT QUẢ QUÉT LÁ SỐ & LUẬN GIẢI")
     st.write(st.session_state.result_text)
 
     st.markdown("---")
-    st.subheader("🔊 Đọc bài luận bằng AI (Audio)")
+    st.subheader("🔊 Đọc bài luận bằng AI (Microsoft Neural Voice)")
 
-    if st.button("🎧 Tạo giọng đọc Audio (Tiếng Việt)"):
+    if st.button("🎧 Tạo giọng đọc Audio"):
         with st.spinner("🎵 AI đang chuyển bài luận thành giọng đọc âm thanh..."):
             try:
-                # Làm sạch ký tự Markdown (*, #, -) để giọng đọc tự nhiên
-                clean_text = st.session_state.result_text.replace("*", "").replace("#", "").replace("-", "")
+                # 1. Làm sạch văn bản (loại bỏ ký tự định dạng Markdown)
+                clean_text = (
+                    st.session_state.result_text
+                    .replace("*", "")
+                    .replace("#", "")
+                    .replace("- ", " ")
+                    .replace("`", "")
+                )
                 
-                # Giới hạn độ dài ngắn gọn nếu bài quá dài để xử lý nhanh hơn
-                tts = gTTS(text=clean_text[:3000], lang='vi', slow=False)
-                
-                # Lưu vào bộ nhớ đệm
-                sound_file = io.BytesIO()
-                tts.write_to_fp(sound_file)
-                sound_file.seek(0)
+                # Cắt gọn độ dài hợp lý để xử lý Audio nhanh nhất
+                text_to_speech = clean_text[:3000]
 
-                # Trình phát audio
-                st.audio(sound_file, format="audio/mp3")
-                st.success("✅ Tạo file giọng đọc thành công! Nhấn Nút Play bên trên để nghe.")
+                # 2. Hàm xử lý chuyển đổi bất đồng bộ (Async)
+                async def generate_audio():
+                    communicate = edge_tts.Communicate(text_to_speech, voice_code)
+                    audio_bytes = b""
+                    async for chunk in communicate.stream():
+                        if chunk["type"] == "audio":
+                            audio_bytes += chunk["data"]
+                    return audio_bytes
+
+                # 3. Thực thi tạo file mp3 trong bộ nhớ
+                audio_data = asyncio.run(generate_audio())
+
+                # 4. Hiển thị trình phát audio
+                st.audio(audio_data, format="audio/mp3")
+                st.success("✅ Tạo giọng đọc AI thành công! Hãy nhấn Nút Play ở trên để nghe.")
+
             except Exception as e:
-                st.error(f"Lỗi tạo Audio: {e}")
+                st.error(f"❌ Lỗi tạo Audio: {e}")
