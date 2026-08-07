@@ -3,6 +3,7 @@ import os
 import json
 import glob
 import asyncio
+import re
 from PIL import Image
 from google import genai
 from google.genai import types
@@ -12,7 +13,7 @@ import edge_tts
 st.set_page_config(page_title="AI Luận Giải Bát Tự Tứ Trụ", page_icon="🔮", layout="wide")
 
 st.title("🔮 Hệ Thống AI Đọc Lá Số & Luận Giải Bát Tự")
-st.caption("Tự động phân tích ảnh lá số Tứ Trụ, tra cứu tri thức và tạo audio giọng đọc AI truyền cảm.")
+st.caption("Tự động phân tích ảnh lá số Tứ Trụ, tra cứu tri thức và đọc bài luận bằng nhiều giọng đọc AI.")
 
 # ==========================================
 # 1. TỰ ĐỘNG ĐỌC BẢO MẬT GEMINI API KEY
@@ -52,18 +53,28 @@ system_prompt_input = st.sidebar.text_area(
     height=200
 )
 
-# Tùy chọn giọng đọc AI
+# ==========================================
+# 4. CHỌN GIỌNG ĐỌC AI (ĐA DẠNG VÙNG MIỀN)
+# ==========================================
 st.sidebar.markdown("---")
-st.sidebar.header("🎙️ Cấu Hình Giọng Đọc AI")
-voice_option = st.sidebar.selectbox(
-    "Chọn giọng đọc:",
-    options=["vi-VN-HoaiMyNeural (Giọng Nữ)", "vi-VN-NamMinhNeural (Giọng Nam)"],
+st.sidebar.header("🎙️ Chọn Giọng Đọc AI")
+
+# Tùy chọn các giọng đọc Microsoft Neural Voice Tiếng Việt
+VOICE_OPTIONS = {
+    "👩 Hoài Mỹ - Giọng Nữ Miền Bắc (Rõ ràng, truyền cảm)": "vi-VN-HoaiMyNeural",
+    "👨 Nam Minh - Giọng Nam Miền Bắc (Trầm ấm, uy nghiêm)": "vi-VN-NamMinhNeural",
+}
+
+selected_voice_label = st.sidebar.selectbox(
+    "Chọn giọng đọc muốn phát:",
+    options=list(VOICE_OPTIONS.keys()),
     index=0
 )
-voice_code = "vi-VN-HoaiMyNeural" if "HoaiMy" in voice_option else "vi-VN-NamMinhNeural"
+
+voice_code = VOICE_OPTIONS[selected_voice_label]
 
 # ==========================================
-# 4. LOAD DỮ LIỆU TRI THỨC TỪ OUTPUT_DATA
+# 5. LOAD DỮ LIỆU TRI THỨC TỪ OUTPUT_DATA
 # ==========================================
 @st.cache_data
 def load_knowledge_base():
@@ -94,7 +105,7 @@ else:
     st.sidebar.error("❌ Chưa thấy file .jsonl trong thư mục `output_data`!")
 
 # ==========================================
-# 5. GIAO DIỆN TẢI LÊN LÁ SỐ & CÂU HỎI
+# 6. GIAO DIỆN TẢI LÊN LÁ SỐ & CÂU HỎI
 # ==========================================
 col1, col2 = st.columns([1, 1])
 
@@ -117,12 +128,11 @@ with col2:
 
 st.markdown("---")
 
-# Quản lý bộ nhớ đệm lưu kết quả bài luận
 if "result_text" not in st.session_state:
     st.session_state.result_text = ""
 
 # ==========================================
-# 6. QUÉT LÁ SỐ VÀ LUẬN GIẢI
+# 7. QUÉT LÁ SỐ VÀ LUẬN GIẢI
 # ==========================================
 if st.button("🚀 Quét Lá Số & Thực Hiện Luận Giải", type="primary", use_container_width=True):
     if not api_key:
@@ -130,7 +140,7 @@ if st.button("🚀 Quét Lá Số & Thực Hiện Luận Giải", type="primary"
     elif uploaded_file is None:
         st.warning("⚠️ Vui lòng tải lên hình ảnh Lá Số Bát Tự!")
     else:
-        with st.spinner("🔍 AI đang mắt thần quét lá số và tra cứu tri thức từ thư mục output_data..."):
+        with st.spinner("🔍 AI đang soi kỹ từng bảng lá số và tra cứu tri thức từ output_data..."):
             try:
                 context_str = ""
                 for i, item in enumerate(knowledge_base[:10], 1):
@@ -138,16 +148,34 @@ if st.button("🚀 Quét Lá Số & Thực Hiện Luận Giải", type="primary"
                     context_str += f"--- DỮ LIỆU MẪU OUTPUT_DATA {i} ---\n{text_content}\n\n"
 
                 prompt = f"""
-Nhiệm vụ của bạn:
-1. Quét hình ảnh Lá số Bát Tự được đính kèm và trích xuất thông tin:
-   - Thông tin cá nhân, Tứ trụ (Năm, Tháng, Ngày, Giờ), Can Chi, Tàng Can, Thập Thần, Đại Vận, Thần Sát.
+Hãy đóng vai một Mắt Thần OCR chuyên gia phân tích lá số Tứ Trụ. 
+Nhiệm vụ của bạn là soi kỹ HÌNH ẢNH LÁ SỐ BÁT TỰ và trích xuất KHÔNG BỎ SÓT BẤT KỲ BẢNG NÀO theo đúng cấu trúc sau:
 
-2. LUẬN GIẢI MỆNH LÝ CHUYÊN SÂU:
-   Sử dụng thông tin lá số ĐỒNG THỜI tra cứu và vận dụng CƠ SỞ DỮ LIỆU TÀI LIỆU được trích xuất từ `output_data` dưới đây để phân tích:
-   - Sức mạnh Nhật Chủ, Ngũ Hành khuyết thiếu/vượng.
-   - Ý nghĩa Thập Thần và tương quan lá số.
-   - Luận giải Vận Hạn (Đại vận, Lưu niên).
-   - Lời khuyên ứng biến.
+### BƯỚC 1: TRÍCH XUẤT TOÀN BỘ BẢNG DỮ LIỆU CỦA LÁ SỐ
+Hãy liệt kê rõ ràng các thông tin đọc được từ ảnh:
+1. **Bảng Thông Tin Cá Nhân**: Họ tên, Giới tính, Âm Dương, Ngày/Tháng/Năm/Giờ sinh (Lịch Dương & Lịch Âm), Tiết khí, Nguyệt lệnh, Nhật chủ, Nạp Âm, Khởi vận.
+2. **Bảng Tứ Trụ (Năm - Tháng - Ngày - Giờ)**:
+   - Lịch Dương / Lịch Âm
+   - Thiên Can / Địa Chi
+   - Bát Tự / Nạp Âm / Ngũ Hành / Âm Dương
+   - Thập Thần / Ý Nghĩa Thập Thần
+   - Tàng Can / Phó Tinh / Thập Nhị Thần
+3. **Bảng Đại Vận & Lưu Niên**:
+   - Danh sách các Đại Vận (Ví dụ: Canh Tý 8-17t, Tân Sửu 18-27t, Nhâm Dần 28-37t,...).
+   - Các năm Lưu Niên tương ứng.
+4. **Bảng Thần Sát & Mệnh Cung**:
+   - Thần Sát Nguyên Cục: Dương Nhẫn, Hồng Diễm, Tướng Tinh, Lộc Thần, Vong Thần,...
+   - Mệnh Cung, Thai Nguyên, Niên Không, Nhật Không.
+
+---
+
+### BƯỚC 2: BÀI LUẬN GIẢI CHUYÊN SÂU
+Dựa trên TOÀN BỘ dữ liệu đã trích xuất ở Bước 1 và CƠ SỞ TRÍ THỨC dưới đây để đưa ra bài luận giải:
+- Phân tích chi tiết Nhật Chủ & sự vượng suy của Ngũ Hành.
+- Phân tích tương quan Thập Thần (Thiên Tài, Chính Quan, Thiên Ấn, Kiếp Tài...).
+- Luận giải ảnh hưởng của các Thần Sát (Dương Nhẫn, Lộc Thần, Vong Thần...).
+- Phân tích Vận Hạn (Đại vận hiện tại và các năm Lưu Niên quan trọng).
+- Lời khuyên định hướng.
 
 CƠ SỞ DỮ LIỆU TRÍ THỨC (TRÍCH XUẤT TỪ OUTPUT_DATA):
 ==================================================
@@ -165,56 +193,75 @@ YÊU CẦU BỔ SUNG TỪ NGƯỜI DÙNG:
                     contents=[image, prompt],
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt_input,
-                        temperature=0.2
+                        temperature=0.1
                     )
                 )
 
                 st.session_state.result_text = response.text
-                st.success("✅ Đã hoàn thành quét lá số và luận giải!")
+                st.success("✅ Đã hoàn thành quét toàn bộ lá số và lập bài luận!")
 
             except Exception as e:
                 st.error(f"❌ Đã xảy ra lỗi: {e}")
 
 # ==========================================
-# 7. HIỂN THỊ KẾT QUẢ & ĐỌC AUDIO EDGE-TTS
+# 8. HIỂN THỊ KẾT QUẢ & TẠO AUDIO THEO GIỌNG ĐỌC ĐÃ CHỌN
 # ==========================================
 if st.session_state.result_text:
     st.markdown("### 📋 KẾT QUẢ QUÉT LÁ SỐ & LUẬN GIẢI")
     st.write(st.session_state.result_text)
 
     st.markdown("---")
-    st.subheader("🔊 Đọc bài luận bằng AI (Microsoft Neural Voice)")
+    st.subheader("🔊 Đọc bài luận bằng AI (Chọn giọng đọc)")
+    st.info(f"Giọng đọc đang chọn: **{selected_voice_label}** (Thay đổi tại Thanh Cấu Hình bên trái)")
 
-    if st.button("🎧 Tạo giọng đọc Audio"):
-        with st.spinner("🎵 AI đang chuyển bài luận thành giọng đọc âm thanh..."):
+    if st.button("🎧 Tạo Audio với giọng đã chọn", type="primary"):
+        with st.spinner("🎵 AI đang chuyển văn bản và ghép giọng đọc đầy đủ..."):
             try:
-                # 1. Làm sạch văn bản (loại bỏ ký tự định dạng Markdown)
+                # 1. Làm sạch ký tự đặc biệt/Markdown
                 clean_text = (
                     st.session_state.result_text
                     .replace("*", "")
                     .replace("#", "")
                     .replace("- ", " ")
                     .replace("`", "")
+                    .replace("|", " ")
+                    .replace("\n\n", ". ")
+                    .replace("\n", " ")
                 )
+
+                # 2. Tách nhỏ các câu theo dấu chấm
+                raw_chunks = re.split(r'(?<=[.?!])\s+', clean_text)
                 
-                # Cắt gọn độ dài hợp lý để xử lý Audio nhanh nhất
-                text_to_speech = clean_text[:3000]
+                text_blocks = []
+                current_block = ""
+                for chunk in raw_chunks:
+                    if len(current_block) + len(chunk) < 1000:
+                        current_block += " " + chunk
+                    else:
+                        if current_block.strip():
+                            text_blocks.append(current_block.strip())
+                        current_block = chunk
+                if current_block.strip():
+                    text_blocks.append(current_block.strip())
 
-                # 2. Hàm xử lý chuyển đổi bất đồng bộ (Async)
-                async def generate_audio():
-                    communicate = edge_tts.Communicate(text_to_speech, voice_code)
-                    audio_bytes = b""
-                    async for chunk in communicate.stream():
-                        if chunk["type"] == "audio":
-                            audio_bytes += chunk["data"]
-                    return audio_bytes
+                # 3. Hàm tạo audio bất đồng bộ với voice_code được chọn
+                async def generate_full_audio():
+                    full_audio_bytes = b""
+                    for block in text_blocks:
+                        if not block.strip():
+                            continue
+                        communicate = edge_tts.Communicate(block, voice_code)
+                        async for chunk in communicate.stream():
+                            if chunk["type"] == "audio":
+                                full_audio_bytes += chunk["data"]
+                    return full_audio_bytes
 
-                # 3. Thực thi tạo file mp3 trong bộ nhớ
-                audio_data = asyncio.run(generate_audio())
+                # 4. Chạy tạo audio
+                audio_data = asyncio.run(generate_full_audio())
 
-                # 4. Hiển thị trình phát audio
+                # 5. Phát trình đọc audio
                 st.audio(audio_data, format="audio/mp3")
-                st.success("✅ Tạo giọng đọc AI thành công! Hãy nhấn Nút Play ở trên để nghe.")
+                st.success(f"✅ Đã tạo giọng đọc **{selected_voice_label}** thành công! Bấm Play để nghe.")
 
             except Exception as e:
                 st.error(f"❌ Lỗi tạo Audio: {e}")
