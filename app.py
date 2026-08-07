@@ -54,15 +54,14 @@ system_prompt_input = st.sidebar.text_area(
 )
 
 # ==========================================
-# 4. CHỌN GIỌNG ĐỌC AI (ĐA DẠNG VÙNG MIỀN)
+# 4. CHỌN GIỌNG ĐỌC AI
 # ==========================================
 st.sidebar.markdown("---")
 st.sidebar.header("🎙️ Chọn Giọng Đọc AI")
 
-# Tùy chọn các giọng đọc Microsoft Neural Voice Tiếng Việt
 VOICE_OPTIONS = {
-    "👩 Hoài Mỹ - Giọng Nữ Miền Bắc (Rõ ràng, truyền cảm)": "vi-VN-HoaiMyNeural",
-    "👨 Nam Minh - Giọng Nam Miền Bắc (Trầm ấm, uy nghiêm)": "vi-VN-NamMinhNeural",
+    "👩 Hoài Mỹ - Giọng Nữ Miền Bắc": "vi-VN-HoaiMyNeural",
+    "👨 Nam Minh - Giọng Nam Miền Bắc": "vi-VN-NamMinhNeural",
 }
 
 selected_voice_label = st.sidebar.selectbox(
@@ -169,7 +168,7 @@ Hãy liệt kê rõ ràng các thông tin đọc được từ ảnh:
 
 ---
 
-### BƯỚC 2: BÀI LUẬN GIẢI CHUYÊN SÂU
+### BƯỚC 2: BÀI LUẬN GIẢI CHUYÊN SÂU THEO HỆ THỐNG MANH PHÁI
 Dựa trên TOÀN BỘ dữ liệu đã trích xuất ở Bước 1 và CƠ SỞ TRÍ THỨC dưới đây để đưa ra bài luận giải:
 - Phân tích chi tiết Nhật Chủ & sự vượng suy của Ngũ Hành.
 - Phân tích tương quan Thập Thần (Thiên Tài, Chính Quan, Thiên Ấn, Kiếp Tài...).
@@ -204,22 +203,34 @@ YÊU CẦU BỔ SUNG TỪ NGƯỜI DÙNG:
                 st.error(f"❌ Đã xảy ra lỗi: {e}")
 
 # ==========================================
-# 8. HIỂN THỊ KẾT QUẢ & TẠO AUDIO THEO GIỌNG ĐỌC ĐÃ CHỌN
+# 8. HIỂN THỊ KẾT QUẢ & ĐỌC AUDIO (BỎ QUA BƯỚC 1)
 # ==========================================
 if st.session_state.result_text:
     st.markdown("### 📋 KẾT QUẢ QUÉT LÁ SỐ & LUẬN GIẢI")
     st.write(st.session_state.result_text)
 
     st.markdown("---")
-    st.subheader("🔊 Đọc bài luận bằng AI (Chọn giọng đọc)")
-    st.info(f"Giọng đọc đang chọn: **{selected_voice_label}** (Thay đổi tại Thanh Cấu Hình bên trái)")
+    st.subheader("🔊 Đọc bài luận bằng AI (Chỉ đọc BƯỚC 2)")
+    st.info(f"Giọng đọc đang chọn: **{selected_voice_label}** | 💡 **Chế độ:** Bỏ qua Bước 1 trích xuất bảng, chỉ đọc phần bài luận chuyên sâu.")
 
-    if st.button("🎧 Tạo Audio với giọng đã chọn", type="primary"):
-        with st.spinner("🎵 AI đang chuyển văn bản và ghép giọng đọc đầy đủ..."):
+    if st.button("🎧 Tạo Audio bài luận (Bắt đầu từ Bước 2)", type="primary"):
+        with st.spinner("🎵 AI đang lọc nội dung Bước 2 và tạo giọng đọc..."):
             try:
-                # 1. Làm sạch ký tự đặc biệt/Markdown
+                full_text = st.session_state.result_text
+
+                # 1. Thuật toán tự động cắt phần BƯỚC 2 (Bỏ qua Bước 1)
+                buec2_keyword = "BƯỚC 2"
+                if buec2_keyword in full_text.upper():
+                    # Tìm vị trí bắt đầu của Bước 2
+                    start_index = full_text.upper().find(buec2_keyword)
+                    step2_text = full_text[start_index:]
+                else:
+                    # Nếu không tìm thấy chữ BƯỚC 2 thì dùng toàn bộ văn bản
+                    step2_text = full_text
+
+                # 2. Làm sạch văn bản (Loại bỏ các ký tự Markdown)
                 clean_text = (
-                    st.session_state.result_text
+                    step2_text
                     .replace("*", "")
                     .replace("#", "")
                     .replace("- ", " ")
@@ -229,7 +240,7 @@ if st.session_state.result_text:
                     .replace("\n", " ")
                 )
 
-                # 2. Tách nhỏ các câu theo dấu chấm
+                # 3. Tách nhỏ văn bản thành các câu để truyền tải mượt mà
                 raw_chunks = re.split(r'(?<=[.?!])\s+', clean_text)
                 
                 text_blocks = []
@@ -244,8 +255,8 @@ if st.session_state.result_text:
                 if current_block.strip():
                     text_blocks.append(current_block.strip())
 
-                # 3. Hàm tạo audio bất đồng bộ với voice_code được chọn
-                async def generate_full_audio():
+                # 4. Hàm gọi Edge-TTS ghép nối các đoạn Audio
+                async def generate_step2_audio():
                     full_audio_bytes = b""
                     for block in text_blocks:
                         if not block.strip():
@@ -256,12 +267,12 @@ if st.session_state.result_text:
                                 full_audio_bytes += chunk["data"]
                     return full_audio_bytes
 
-                # 4. Chạy tạo audio
-                audio_data = asyncio.run(generate_full_audio())
+                # 5. Chạy lệnh bất đồng bộ
+                audio_data = asyncio.run(generate_step2_audio())
 
-                # 5. Phát trình đọc audio
+                # 6. Xuất trình phát Audio
                 st.audio(audio_data, format="audio/mp3")
-                st.success(f"✅ Đã tạo giọng đọc **{selected_voice_label}** thành công! Bấm Play để nghe.")
+                st.success("✅ Đã tạo giọng đọc BƯỚC 2 thành công! Bấm nút Play để bắt đầu nghe bài luận.")
 
             except Exception as e:
                 st.error(f"❌ Lỗi tạo Audio: {e}")
