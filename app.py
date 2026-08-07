@@ -10,7 +10,7 @@ from google.genai import types
 st.set_page_config(page_title="AI Luận Giải Bát Tự Tứ Trụ", page_icon="🔮", layout="wide")
 
 st.title("🔮 Hệ Thống AI Đọc Lá Số & Luận Giải Bát Tự")
-st.caption("Tự động phân tích ảnh lá số Tứ Trụ và tra cứu tài liệu chuyên ngành để đưa ra lời luận giải.")
+st.caption("Tự động phân tích ảnh lá số Tứ Trụ và tra cứu dữ liệu tri thức từ thư mục output_data.")
 
 # ==========================================
 # 1. TỰ ĐỘNG ĐỌC BẢO MẬT GEMINI API KEY
@@ -18,7 +18,7 @@ st.caption("Tự động phân tích ảnh lá số Tứ Trụ và tra cứu tà
 api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
 # ==========================================
-# 2. HÀM TỰ ĐỘNG ĐỌC FILE SYSTEM PROMPT RIÊNG
+# 2. ĐỌC FILE SYSTEM PROMPT TỪ THƯ MỤC DATA
 # ==========================================
 def load_system_prompt():
     prompt_path = os.path.join("data", "system_prompt.txt")
@@ -27,7 +27,7 @@ def load_system_prompt():
             return f.read().strip()
     return (
         "Bạn là một chuyên gia luận giải Bát Tự Tứ Trụ và Mệnh Lý học cao cấp.\n"
-        "Nhiệm vụ của bạn là đọc lá số và tra cứu tài liệu được cung cấp để đưa ra lời luận giải chính xác."
+        "Nhiệm vụ của bạn là đọc lá số và tra cứu tri thức trong file dữ liệu được cung cấp để đưa ra lời luận giải chính xác."
     )
 
 # ==========================================
@@ -43,32 +43,30 @@ else:
 
 st.sidebar.markdown("---")
 
-# Tải System Prompt từ file txt
 default_prompt = load_system_prompt()
-
 system_prompt_input = st.sidebar.text_area(
     "🎯 System Prompt (Đọc từ data/system_prompt.txt):",
     value=default_prompt,
-    height=220,
-    help="Bạn có thể chỉnh sửa trực tiếp trên giao diện hoặc sửa file data/system_prompt.txt trên GitHub"
+    height=200
 )
 
 # ==========================================
-# 4. LOAD DỮ LIỆU TÀI LIỆU NGUỒN (THƯ MỤC DATA)
+# 4. LOAD DỮ LIỆU TRI THỨC TỪ OUTPUT_DATA
 # ==========================================
 @st.cache_data
 def load_knowledge_base():
-    jsonl_files = glob.glob("data/**/*.jsonl", recursive=True) + glob.glob("data/*.jsonl")
-    rag_files = [f for f in jsonl_files if "finetune" not in f]
-    target_files = rag_files if rag_files else jsonl_files
+    # 1. Ưu tiên quét tất cả file .jsonl trong thư mục output_data
+    jsonl_files = glob.glob("output_data/**/*.jsonl", recursive=True) + glob.glob("output_data/*.jsonl")
+    
+    # 2. Nếu trong output_data chưa có, mở rộng quét toàn bộ dự án làm phương án dự phòng
+    if not jsonl_files:
+        jsonl_files = glob.glob("**/*.jsonl", recursive=True)
 
-    if not target_files:
-        target_files = glob.glob("**/*.jsonl", recursive=True)
-
-    if not target_files:
+    if not jsonl_files:
         return []
     
-    latest_file = max(target_files, key=os.path.getmtime)
+    # Đọc dữ liệu từ file .jsonl mới nhất
+    latest_file = max(jsonl_files, key=os.path.getmtime)
     data = []
     try:
         with open(latest_file, "r", encoding="utf-8") as f:
@@ -82,12 +80,12 @@ def load_knowledge_base():
 knowledge_base = load_knowledge_base()
 
 if knowledge_base:
-    st.sidebar.success(f"📚 Đã nạp {len(knowledge_base)} đoạn tri thức từ thư mục `data`!")
+    st.sidebar.success(f"📚 Đã nạp {len(knowledge_base)} mẫu dữ liệu từ `output_data`!")
 else:
-    st.sidebar.error("❌ Chưa thấy file .jsonl trong thư mục `data`!")
+    st.sidebar.error("❌ Chưa thấy file .jsonl trong thư mục `output_data`!")
 
 # ==========================================
-# 5. MỤC TẢI LÊN LÁ SỐ & CÂU HỎI
+# 5. GIAO DIỆN TẢI LÊN LÁ SỐ & CÂU HỎI
 # ==========================================
 col1, col2 = st.columns([1, 1])
 
@@ -101,7 +99,7 @@ with col1:
         st.image(image, caption="Lá số Bát Tự đã tải lên", use_container_width=True)
 
 with col2:
-    st.subheader("📝 2. Yêu cầu/Câu hỏi bổ sung")
+    st.subheader("📝 2. Yêu cầu / Cần luận giải chi tiết")
     user_query = st.text_area(
         "Nhập thắc mắc hoặc nội dung muốn tập trung luận giải:",
         height=140,
@@ -119,35 +117,34 @@ if st.button("🚀 Quét Lá Số & Thực Hiện Luận Giải", type="primary"
     elif uploaded_file is None:
         st.warning("⚠️ Vui lòng tải lên hình ảnh Lá Số Bát Tự!")
     else:
-        with st.spinner("🔍 AI đang mắt thần quét lá số và tra cứu tri thức tài liệu..."):
+        with st.spinner("🔍 AI đang mắt thần quét lá số và tra cứu tri thức từ thư mục output_data..."):
             try:
-                # Chuẩn bị tri thức tài liệu đính kèm
+                # Trích xuất dữ liệu từ output_data đưa vào ngữ cảnh cho AI
                 context_str = ""
-                for i, chunk in enumerate(knowledge_base[:10], 1):
-                    context_str += f"--- TRÍ THỨC TÀI LIỆU {i} ({chunk.get('context', 'Chung')}) ---\n"
-                    context_str += f"{chunk.get('text', '')}\n\n"
+                for i, item in enumerate(knowledge_base[:10], 1):
+                    # Đọc linh hoạt theo dạng tin nhắn (finetune_chat) hoặc đoạn văn (RAG chunks)
+                    text_content = item.get('text') or item.get('messages') or item.get('output') or str(item)
+                    context_str += f"--- DỮ LIỆU MẪU OUTPUT_DATA {i} ---\n{text_content}\n\n"
 
                 # Xây dựng Prompt tổng hợp
                 prompt = f"""
-Nhiệm vụ:
-1. Hãy quét kỹ hình ảnh Lá số Bát Tự được đính kèm và đọc ra đầy đủ các thông tin:
-   - Thông tin cá nhân (Họ tên, Giới tính, Ngày giờ sinh, Âm/Dương lịch, Mệnh Nạp âm).
-   - Tứ Trụ (Năm, Tháng, Ngày, Giờ): Can Chi, Nạp Âm, Thập Thần, Tàng Can, Phó Tinh, Thập Nhị Thần.
-   - Các Đại Vận, Lưu Niên và Thần Sát (Dương Nhẫn, Hồng Diễm, Vong Thần,...).
+Nhiệm vụ của bạn:
+1. Quét hình ảnh Lá số Bát Tự được đính kèm và trích xuất thông tin:
+   - Thông tin cá nhân, Tứ trụ (Năm, Tháng, Ngày, Giờ), Can Chi, Tàng Can, Thập Thần, Đại Vận, Thần Sát.
 
-2. BÀI LUẬN GIẢI CHUYÊN SÂU:
-   Dựa trên lá số đã quét ĐỒNG THỜI tra cứu CƠ SỞ TRÍ THỨC dưới đây để luận giải chi tiết:
-   - Phân tích Nhật Chủ và sức mạnh Ngũ Hành.
-   - Phân tích Ý nghĩa Thập Thần (Chính Quan, Thiên Tài, Thiên Ấn,...).
-   - Đánh giá các Vận Hạn (Đại Vận / Lưu Niên).
-   - Đưa ra Lời khuyên định hướng.
+2. LUẬN GIẢI MỆNH LÝ CHUYÊN SÂU:
+   Sử dụng thông tin lá số ĐỒNG THỜI tra cứu và vận dụng CƠ SỞ DỮ LIỆU TÀI LIỆU được trích xuất từ `output_data` dưới đây để phân tích:
+   - Sức mạnh Nhật Chủ, Ngũ Hành khuyết thiếu/vượng.
+   - Ý nghĩa Thập Thần và tương quan lá số.
+   - Luận giải Vận Hạn (Đại vận, Lưu niên).
+   - Lời khuyên ứng biến.
 
-CƠ SỞ TRÍ THỨC TÀI LIỆU NGUỒN TÌM THẤY:
+CƠ SỞ DỮ LIỆU TRÍ THỨC (TRÍCH XUẤT TỪ OUTPUT_DATA):
 ==================================================
 {context_str}
 ==================================================
 
-YÊU CẦU BỔ SUNG CỦA NGƯỜI DÙNG:
+YÊU CẦU BỔ SUNG TỪ NGƯỜI DÙNG:
 {user_query if user_query.strip() else 'Hãy luận giải tổng quan toàn bộ lá số này.'}
 """
 
@@ -158,7 +155,7 @@ YÊU CẦU BỔ SUNG CỦA NGƯỜI DÙNG:
                     model="gemini-3.6-flash",
                     contents=[image, prompt],
                     config=types.GenerateContentConfig(
-                        system_instruction=system_prompt_input, # Dùng prompt đã nạp
+                        system_instruction=system_prompt_input,
                         temperature=0.2
                     )
                 )
