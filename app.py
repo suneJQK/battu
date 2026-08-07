@@ -15,46 +15,50 @@ st.caption("Tự động phân tích ảnh lá số Tứ Trụ và tra cứu tà
 # ==========================================
 # 1. TỰ ĐỘNG ĐỌC BẢO MẬT GEMINI API KEY
 # ==========================================
-# Đọc API Key bảo mật từ Streamlit Secrets (trên Cloud) hoặc Environment Variable (Local)
 api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
 # ==========================================
-# 2. THANH CẤU HÌNH BÊN TRÁI (SIDEBAR)
+# 2. HÀM TỰ ĐỘNG ĐỌC FILE SYSTEM PROMPT RIÊNG
+# ==========================================
+def load_system_prompt():
+    prompt_path = os.path.join("data", "system_prompt.txt")
+    if os.path.exists(prompt_path):
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    return (
+        "Bạn là một chuyên gia luận giải Bát Tự Tứ Trụ và Mệnh Lý học cao cấp.\n"
+        "Nhiệm vụ của bạn là đọc lá số và tra cứu tài liệu được cung cấp để đưa ra lời luận giải chính xác."
+    )
+
+# ==========================================
+# 3. THANH CẤU HÌNH BÊN TRÁI (SIDEBAR)
 # ==========================================
 st.sidebar.header("⚙️ Cấu Hình Hệ Thống")
 
-# Hiển thị trạng thái kết nối Key (không làm lộ mã Key)
+# Hiển thị trạng thái kết nối Key
 if api_key:
-    st.sidebar.success("🔑 Trạng thái API Key: ĐÃ KẾT NỐI (Streamlit Secrets)")
+    st.sidebar.success("🔑 API Key: ĐÃ KẾT NỐI (Streamlit Secrets)")
 else:
     st.sidebar.error("⚠️ Chưa tìm thấy GEMINI_API_KEY trong Streamlit Secrets!")
 
 st.sidebar.markdown("---")
 
-# Prompt điều hướng AI
-default_system_prompt = (
-    "Bạn là một chuyên gia luận giải Bát Tự Tứ Trụ và Mệnh Lý học cao cấp.\n"
-    "Nhiệm vụ của bạn:\n"
-    "1. Đọc và trích xuất TOÀN BỘ thông tin lá số Bát Tự từ hình ảnh (Tứ trụ: Năm, Tháng, Ngày, Giờ; Can Chi, Tàng Can, Nạp Âm, Thập Thần, Đại Vận, Thần Sát,...).\n"
-    "2. Kết hợp với CƠ SỞ TRÍ THỨC tài liệu được cung cấp để phân tích, luận giải chi tiết về Mệnh chủ.\n"
-    "3. Quy tắc BẮT BUỘC: Bám sát tài liệu nguồn. Nếu có thuật ngữ trong lá số, hãy dùng tri thức tài liệu để giải thích ý nghĩa."
-)
+# Tải System Prompt từ file txt
+default_prompt = load_system_prompt()
 
 system_prompt_input = st.sidebar.text_area(
-    "🎯 System Prompt (Định hướng AI):",
-    value=default_system_prompt,
-    height=220
+    "🎯 System Prompt (Đọc từ data/system_prompt.txt):",
+    value=default_prompt,
+    height=220,
+    help="Bạn có thể chỉnh sửa trực tiếp trên giao diện hoặc sửa file data/system_prompt.txt trên GitHub"
 )
 
 # ==========================================
-# 3. LOAD DỮ LIỆU TÀI LIỆU NGUỒN (THƯ MỤC DATA)
+# 4. LOAD DỮ LIỆU TÀI LIỆU NGUỒN (THƯ MỤC DATA)
 # ==========================================
 @st.cache_data
 def load_knowledge_base():
-    # Quét các file .jsonl trong thư mục data (hoặc dự phòng toàn bộ dự án)
     jsonl_files = glob.glob("data/**/*.jsonl", recursive=True) + glob.glob("data/*.jsonl")
-    
-    # Ưu tiên lấy file rag_chunks (bỏ qua file finetune nếu có)
     rag_files = [f for f in jsonl_files if "finetune" not in f]
     target_files = rag_files if rag_files else jsonl_files
 
@@ -83,7 +87,7 @@ else:
     st.sidebar.error("❌ Chưa thấy file .jsonl trong thư mục `data`!")
 
 # ==========================================
-# 4. MỤC TẢI LÊN LÁ SỐ & CÂU HỎI
+# 5. MỤC TẢI LÊN LÁ SỐ & CÂU HỎI
 # ==========================================
 col1, col2 = st.columns([1, 1])
 
@@ -107,7 +111,7 @@ with col2:
 st.markdown("---")
 
 # ==========================================
-# 5. QUÉT LÁ SỐ VÀ LUẬN GIẢI
+# 6. QUÉT LÁ SỐ VÀ LUẬN GIẢI
 # ==========================================
 if st.button("🚀 Quét Lá Số & Thực Hiện Luận Giải", type="primary", use_container_width=True):
     if not api_key:
@@ -147,14 +151,14 @@ YÊU CẦU BỔ SUNG CỦA NGƯỜI DÙNG:
 {user_query if user_query.strip() else 'Hãy luận giải tổng quan toàn bộ lá số này.'}
 """
 
-                # Gọi Gemini API bảo mật
+                # Gọi Gemini API
                 client = genai.Client(api_key=api_key)
                 
                 response = client.models.generate_content(
                     model="gemini-3.6-flash",
                     contents=[image, prompt],
                     config=types.GenerateContentConfig(
-                        system_instruction=system_prompt_input,
+                        system_instruction=system_prompt_input, # Dùng prompt đã nạp
                         temperature=0.2
                     )
                 )
