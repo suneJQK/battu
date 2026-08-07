@@ -5,12 +5,14 @@ import glob
 from PIL import Image
 from google import genai
 from google.genai import types
+from gtts import gTTS
+import io
 
 # Cấu hình giao diện Streamlit
 st.set_page_config(page_title="AI Luận Giải Bát Tự Tứ Trụ", page_icon="🔮", layout="wide")
 
 st.title("🔮 Hệ Thống AI Đọc Lá Số & Luận Giải Bát Tự")
-st.caption("Tự động phân tích ảnh lá số Tứ Trụ và tra cứu dữ liệu tri thức từ thư mục output_data.")
+st.caption("Tự động phân tích ảnh lá số Tứ Trụ, tra cứu tri thức và đọc bài luận bằng giọng nói AI.")
 
 # ==========================================
 # 1. TỰ ĐỘNG ĐỌC BẢO MẬT GEMINI API KEY
@@ -55,17 +57,14 @@ system_prompt_input = st.sidebar.text_area(
 # ==========================================
 @st.cache_data
 def load_knowledge_base():
-    # 1. Ưu tiên quét tất cả file .jsonl trong thư mục output_data
     jsonl_files = glob.glob("output_data/**/*.jsonl", recursive=True) + glob.glob("output_data/*.jsonl")
     
-    # 2. Nếu trong output_data chưa có, mở rộng quét toàn bộ dự án làm phương án dự phòng
     if not jsonl_files:
         jsonl_files = glob.glob("**/*.jsonl", recursive=True)
 
     if not jsonl_files:
         return []
     
-    # Đọc dữ liệu từ file .jsonl mới nhất
     latest_file = max(jsonl_files, key=os.path.getmtime)
     data = []
     try:
@@ -108,6 +107,10 @@ with col2:
 
 st.markdown("---")
 
+# Quản lý trạng thái lưu kết quả bài luận để chuyển thành Audio
+if "result_text" not in st.session_state:
+    st.session_state.result_text = ""
+
 # ==========================================
 # 6. QUÉT LÁ SỐ VÀ LUẬN GIẢI
 # ==========================================
@@ -119,14 +122,11 @@ if st.button("🚀 Quét Lá Số & Thực Hiện Luận Giải", type="primary"
     else:
         with st.spinner("🔍 AI đang mắt thần quét lá số và tra cứu tri thức từ thư mục output_data..."):
             try:
-                # Trích xuất dữ liệu từ output_data đưa vào ngữ cảnh cho AI
                 context_str = ""
                 for i, item in enumerate(knowledge_base[:10], 1):
-                    # Đọc linh hoạt theo dạng tin nhắn (finetune_chat) hoặc đoạn văn (RAG chunks)
                     text_content = item.get('text') or item.get('messages') or item.get('output') or str(item)
                     context_str += f"--- DỮ LIỆU MẪU OUTPUT_DATA {i} ---\n{text_content}\n\n"
 
-                # Xây dựng Prompt tổng hợp
                 prompt = f"""
 Nhiệm vụ của bạn:
 1. Quét hình ảnh Lá số Bát Tự được đính kèm và trích xuất thông tin:
@@ -148,7 +148,6 @@ YÊU CẦU BỔ SUNG TỪ NGƯỜI DÙNG:
 {user_query if user_query.strip() else 'Hãy luận giải tổng quan toàn bộ lá số này.'}
 """
 
-                # Gọi Gemini API
                 client = genai.Client(api_key=api_key)
                 
                 response = client.models.generate_content(
@@ -160,9 +159,38 @@ YÊU CẦU BỔ SUNG TỪ NGƯỜI DÙNG:
                     )
                 )
 
+                st.session_state.result_text = response.text
                 st.success("✅ Đã hoàn thành quét lá số và luận giải!")
-                st.markdown("### 📋 KẾT QUẢ QUÉT LÁ SỐ & LUẬN GIẢI")
-                st.write(response.text)
 
             except Exception as e:
                 st.error(f"❌ Đã xảy ra lỗi: {e}")
+
+# ==========================================
+# 7. HIỂN THỊ KẾT QUẢ & ĐỌC AUDIO TỰ ĐỘNG
+# ==========================================
+if st.session_state.result_text:
+    st.markdown("### 📋 KẾT QUẢ QUÉT LÁ SỐ & LUẬN GIẢI")
+    st.write(st.session_state.result_text)
+
+    st.markdown("---")
+    st.subheader("🔊 Đọc bài luận bằng AI (Audio)")
+
+    if st.button("🎧 Tạo giọng đọc Audio (Tiếng Việt)"):
+        with st.spinner("🎵 AI đang chuyển bài luận thành giọng đọc âm thanh..."):
+            try:
+                # Làm sạch ký tự Markdown (*, #, -) để giọng đọc tự nhiên
+                clean_text = st.session_state.result_text.replace("*", "").replace("#", "").replace("-", "")
+                
+                # Giới hạn độ dài ngắn gọn nếu bài quá dài để xử lý nhanh hơn
+                tts = gTTS(text=clean_text[:3000], lang='vi', slow=False)
+                
+                # Lưu vào bộ nhớ đệm
+                sound_file = io.BytesIO()
+                tts.write_to_fp(sound_file)
+                sound_file.seek(0)
+
+                # Trình phát audio
+                st.audio(sound_file, format="audio/mp3")
+                st.success("✅ Tạo file giọng đọc thành công! Nhấn Nút Play bên trên để nghe.")
+            except Exception as e:
+                st.error(f"Lỗi tạo Audio: {e}")
