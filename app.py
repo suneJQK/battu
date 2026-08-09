@@ -24,13 +24,17 @@ st.caption(
 )
 
 # ==========================================
-# 1. TỰ ĐỘNG ĐỌC BẢO MẬT GEMINI & GITHUB API KEYS
+# 1. TỰ ĐỘNG ĐỌC BẢO MẬT GEMINI & GITHUB API KEYS TỪ SECRETS
 # ==========================================
 api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+
+# Đọc cấu hình GitHub hoàn toàn từ Streamlit Secrets
 github_token = st.secrets.get(
     "GITHUB_TOKEN", os.environ.get("GITHUB_TOKEN", "")
 )
-github_repo = st.secrets.get("GITHUB_REPO", os.environ.get("GITHUB_REPO", ""))
+github_repo = st.secrets.get(
+    "GITHUB_REPO", os.environ.get("GITHUB_REPO", "suneJQK/battu")
+)
 github_branch = st.secrets.get(
     "GITHUB_BRANCH", os.environ.get("GITHUB_BRANCH", "main")
 )
@@ -232,7 +236,6 @@ if st.button(
     # ----------------------------------------------------
     if github_token and github_repo:
       with st.spinner("📤 Đang tự động sao lưu ảnh lá số lên GitHub..."):
-        # Reset con trỏ file để đọc bytes
         uploaded_file.seek(0)
         img_bytes = uploaded_file.read()
         success, gh_res = upload_image_to_github(img_bytes, uploaded_file.name)
